@@ -377,3 +377,251 @@ void limber_debug_print(const char *name, Limber l)
 	printf("]\n");
 }
 
+int limber_cmp(Limber op1, Limber op2)
+{
+	if (op1->sign != op2->sign) {
+		return op1->sign > op2->sign ? 1 : -1;
+	}
+
+	if (op1->sign == 0) {
+		return 0;
+	}
+
+	int sign = op1->sign;
+
+	if (op1->size != op2->size) {
+		return (op1->size - op2->size) * sign;
+	}
+
+	for (int i = op1->size - 1; i >= 0; i--) {
+		if (op1->limbs[i] > op2->limbs[i]) {
+			return 1 * sign;
+		} else if (op1->limbs[i] < op2->limbs[i]) {
+			return -1 * sign;
+		}
+	}
+
+	return 0;
+}
+
+static void limber_add_mag(Limber rop, Limber op1, Limber op2)
+{
+	limb_t carry = 0;
+	for (int i = 0; i < op2->size; i++) {
+		limb_t sum = op1->limbs[i] + op2->limbs[i];
+		limb_t carry_out = sum < op1->limbs[i];
+		sum += carry;
+		carry_out = carry_out || (sum < op2->limbs[i]);
+		carry = carry_out;
+		rop->limbs[i] = sum;
+	}
+
+	if (carry == 0) {
+		memcpy(&rop->limbs[op2->size], &op1->limbs[op2->size], (op1->size - op2->size) * sizeof(limb_t));
+		rop->size = op1->size;
+		return;
+	}
+
+	for (int i = op2->size; i < op1->size; i++) {
+		limb_t sum = op1->limbs[i] + carry;
+		carry = sum < op1->limbs[i];
+		rop->limbs[i] = sum;
+	}
+
+	if (carry) {
+		rop->limbs[op1->size] = carry;
+		rop->size = op1->size + 1;
+	} else {
+		rop->size = op1->size;
+	}
+}
+
+static void limber_sub_mag(Limber rop, Limber op1, Limber op2)
+{
+	limb_t borrow = 0;
+	for (int i = 0; i < op2->size; i++) {
+		limb_t borrow_in = borrow;
+		limb_t borrow_out = op1->limbs[i] < borrow_in;
+
+		limb_t a = op1->limbs[i] - borrow_in;
+		limb_t sub = a - op2->limbs[i];
+		borrow_out |= a < op2->limbs[i];
+		rop->limbs[i] = sub;
+
+		borrow = borrow_out;
+	}
+
+	if (borrow == 0) {
+		memcpy(&rop->limbs[op2->size], &op1->limbs[op2->size], (op1->size - op2->size) * sizeof(limb_t));
+		rop->size = op1->size;
+		return;
+	}
+
+	for (int i = op2->size; i < op1->size; i++) {
+		limb_t sub = op1->limbs[i] - borrow;
+		borrow = op1->limbs[i] < borrow;
+		rop->limbs[i] = sub;
+	}
+
+	rop->size = op1->size;
+}
+
+void limber_add(Limber rop, Limber op1, Limber op2)
+{
+	limb_t temp;
+	limber_init(temp);
+
+	int r = limber_cmp_mag(op1, op2);
+	int needed_size = (op1->size > op2->size) ? op1->size : op2->size;
+	needed_size++;
+	limber_realloc(temp, needed_size);
+
+	if (op1->sign == op2->sign) {
+		temp->sign = op1->sign;
+
+		if (r >= 0) {
+			limber_add_mag(temp, op1, op2);
+		} else {
+			limber_add_mag(temp, op2, op1);
+		}
+	} else {
+		if (r == 1) {
+			limber_sub_mag(temp, op1, op2);
+			temp->sign = op1->sign;
+		} else if (r == -1) {
+			limber_sub_mag(temp, op2, op1);
+			temp->sign = op2->sign;
+		} else if (r == 0) {
+			//TODO(): Rop is zero
+		}
+	}
+
+	limber_normalize(temp);
+	limber_swap(rop, temp);
+	limber_clear(temp);
+}
+
+void limber_sub(Limber rop, Limber op1, Limber op2)
+{
+	Limber temp;
+	limber_init(temp);
+
+	int needed_size = (op1->size > op2->size) ? op1->size : op2->size;
+	needed_size++;
+	limber_realloc(temp, needed_size);
+
+	int r = limber_cmp_mag(op1, op2);
+
+	if (op1->sign == op2->sign) {
+		if (r == 1) {
+			limber_sub_mag(temp, op1, op2);
+			temp->sign = op1->sign;
+		} else if (r == -1) {
+			limber_sub_mag(temp, op2, op1);
+			temp->sign = -(op1->sign);
+		} else {
+			//TODO(): Rop is zero
+		}
+	} else {
+		temp->sign = op1->sign;
+
+		if (r >= 0) {
+			limber_add_mag(temp, op1, op2);
+		} else {
+			limber_add_mag(temp, op2, op1);
+		}
+	}
+
+	limber_normalize(temp);
+	limber_swap(rop, temp);
+	limber_clear(temp);
+}
+
+void limber_mul(Limber rop, Limber op1, Limber op2)
+{
+	Limber temp;
+	limber_init(temp);
+	limber_realloc(temp, op1->size + op2->size + 1);
+	temp->sign = op1->sign * op2->sign;
+
+	for (int i = 0; i < op1->size; i++) {
+		for (int j = 0; j < op2->size; j++) {
+			limb_t mul_hi = 0;
+			limb_t mul_lo = 0;
+
+			limber_mul_single(&mul_hi, &mul_lo, op1->limbs[i], op2->limbs[i]);
+			temp->limbs[i + j + 1] = mul_hi;
+			temp->limbs[i + j] = mul_lo;
+		}
+	}
+
+	limber_normalize(temp);
+	limber_swap(rop, temp);
+	limber_clear(temp);
+}
+
+int limber_sizeinbase(Limber l, int base)
+{
+	int last_limb_index = l->size - 1;
+	limb_t last_limb = l->limbs[last_limb_index];
+	int bits_in_last_limb = BITS_PER_LIMB - limber_clz(last_limb);
+	int total_bits = (last_limb_index * BITS_PER_LIMB) + bits_in_last_limb;
+
+	double log2_base = log2((double)base);
+	double estimated_digits = (double)total_bits / log2_base;
+
+	return ceil(estimated_digits);
+}
+
+static const char *LIMBER_DIGITS_MAP = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+static void limber_str_reverse(char *start, char *end)
+{
+	char temp;
+	while (start < end) {
+		temp = *start;
+		*start = *end;
+		*end = temp;
+		start++;
+		end++;
+	}
+}
+
+char *limber_to_str(char *str, int base, Limber op)
+{
+	int digits_estimated = limber_sizeinbase(l, base);
+
+	int buffer_size = digits_estimated + 2;
+	char *str = malloc(sizeof(char) * buffer_size);
+	if (str == NULL) {
+		return NULL;
+	}
+
+	if (l->sign == 0) {
+		str[0] = '0';
+		str[1] = '\0';
+		return str;
+	}
+
+	Limber temp;
+	limber_set(temp, l);
+
+	char *p = str;
+	char *digits_start = str;
+
+	if (temp->sign == -1) {
+		*p++ = '-';
+		digits_start++;
+	}
+
+	limb_t remainder;
+	while (!limber_is_zero(temp)) {
+		limber_div_limb(temp, &remainder, temp, (limb_t)base);
+		*p++ = LIMBER_DIGITS_MAP[remainder];
+	}
+	*p = '\0';
+
+	limber_str_reverse(digits_start, p - 1);
+	limber_clear(temp);
+	return str;
+}
