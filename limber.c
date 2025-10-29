@@ -14,12 +14,18 @@
 static const struct limber limber_null = { .size = 0, .alloc = 0, .sign = 0, .limbs = NULL };
 #define LIMBER_NULL limber_null
 
+#define DEFAULT_NUM_LIMBS 10
 void limber_init(Limber l)
 {
-	l->size = 0;
-	l->alloc = 0;
-	l->sign = 0;
-	l->limbs = NULL;
+	l->limbs = malloc(sizeof(limb_t) * DEFAULT_NUM_LIMBS);
+	if (l->limbs) {
+		l->size = 1;
+		l->alloc = DEFAULT_NUM_LIMBS;
+		l->sign = 0;
+		l->limbs[0] = 0;
+	} else {
+		*l = LIMBER_NULL;
+	}
 }
 
 void limber_clear(Limber l)
