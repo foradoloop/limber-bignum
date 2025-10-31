@@ -11,21 +11,51 @@
 #define HALF_BITS (BITS_PER_LIMB / 2)
 #define LOWER_MASK (LIMB_MAX >> HALF_BITS)
 
+#define DEFAULT_NUM_LIMBS 10
+#define REALLOC_GROW_FACTOR 2
+
 static const struct limber limber_null = { .size = 0, .alloc = 0, .sign = 0, .limbs = NULL };
 #define LIMBER_NULL limber_null
 
-#define DEFAULT_NUM_LIMBS 10
+void limber_alloc_failed(size_t size, const char *file, int line)
+{
+	fprintf(stderr, "error: failed to alloc %zu bytes of memory in %s:%d\n", size, file, line);
+	abort();
+}
+
+static void *limber_internal_malloc(size_t size, const char *file, int line)
+{
+	void *ptr = malloc(size);
+
+	if (!ptr && size) {
+		limber_alloc_failed(size, file, line);
+	}
+
+	return ptr;
+}
+
+static void *limber_internal_realloc(void *ptr, size_t size, const char *file, int line)
+{
+	void *new_ptr = realloc(ptr, size);
+
+	if (!new_ptr && size) {
+		limber_alloc_failed(size, file, line);
+	}
+
+	return new_ptr;
+}
+
+#define LIMBER_MALLOC(size) limber_internal_malloc(size, __FILE__, __LINE__)
+#define LIMBER_REALLOC(ptr, size) limber_internal_realloc(ptr, size, __FILE__, __LINE__)
+#define LIMBER_FREE(ptr) free(ptr)
+
 void limber_init(Limber l)
 {
-	l->limbs = malloc(sizeof(limb_t) * DEFAULT_NUM_LIMBS);
-	if (l->limbs) {
-		l->size = 1;
-		l->alloc = DEFAULT_NUM_LIMBS;
-		l->sign = 0;
-		l->limbs[0] = 0;
-	} else {
-		*l = LIMBER_NULL;
-	}
+	l->limbs = LIMBER_MALLOC(sizeof(limb_t) * DEFAULT_NUM_LIMBS);
+	l->alloc = DEFAULT_NUM_LIMBS;
+	l->size = 1;
+	l->sign = 0;
+	l->limbs[0] = 0;
 }
 
 void limber_clear(Limber l)
@@ -52,17 +82,12 @@ bool limber_is_null(Limber l)
 	return l->size == 0 && l->alloc == 0 && l->sign == 0 && l->limbs == NULL;
 }
 
-#define LIMBER_GROW_FACTOR 2
-static void limber_realloc(Limber l, int min_size)
+static void limber_realloc(Limber l, size_t min_size)
 {
-	int new_size = min_size * LIMBER_GROW_FACTOR;
-	limb_t *temp = realloc(l->limbs, sizeof(limb_t) * new_size);
-	if (temp) {
-		l->alloc = new_size;
-		l->limbs = temp;
-	} else {
-		// TODO(): Handle realloc fail
-	}
+	size_t new_size = min_size * REALLOC_GROW_FACTOR;
+
+	l->limbs = LIMBER_REALLOC(l->limbs, sizeof(limb_t) * new_size);
+	l->alloc = new_size;
 }
 
 static bool limber_is_full(Limber l)
@@ -124,9 +149,7 @@ void limber_add_limb(Limber rop, Limber op1, limb_t op2)
 	if (carry > 0) {
 		if (limber_is_full(temp_rop)) {
 			limber_realloc(temp_rop, temp_rop->size + 1);
-			// TODO(): Handle realloc fail
-		}
-		
+		}	
 		temp_rop->limbs[temp_rop->size++] = carry;
 	}
 
@@ -218,20 +241,6 @@ void limber_mul_limb(Limber rop, Limber op1, limb_t op2)
 	limber_clear(temp_rop);
 }
 
-
-static bool is_greater_than(limb_t op1_hi, limb_t op1_lo, limb_t op2_hi, limb_t op2_lo)
-{
-	if (op1_hi > op2_hi) {
-		return true;
-	}
-
-	if (op1_hi < op2_hi) {
-		return false;
-	}
-
-	return op1_lo > op2_lo;
-}
-
 static int limber_clz(limb_t n)
 {
 	if (n == 0) {
@@ -290,68 +299,7 @@ static void divmnu(limb_t high, limb_t low, limb_t divisor, limb_t *q_hi_ptr, li
 		*r_ptr = rem;
 	}
 }
-/*
-static void divrem_2by1(limb_t *q_ptr, limb_t *r_ptr, limb_t p_hi, limb_t p_lo, limb_t q)
-{
-	if (p_hi == 0) {
-		if (q_ptr) {
-			*q_ptr = p_lo / q;
-		}
 
-		if (r_ptr) {
-			*r_ptr = p_lo % q;
-		}
-		return;
-	}
-
-	int s = limber_clz(q);
-	limb_t qn = q << s;
-	limb_t qn_hi = qn >> HALF_BITS;
-
-	limb_t pn_hi = (p_hi << s) | (p_lo >> (BITS_PER_LIMB - s));
-	limb_t pn_lo = p_lo << s;
-
-	limb_t est = 0;
-	limb_t pn_hi_hi = pn_hi >> HALF_BITS;
-	limb_t pn_hi_lo = pn_hi & LOWER_MASK;
-
-	if ((pn_hi >> HALF_BITS) >= qn_hi) {
-		est = LIMB_MAX;
-	} else {
-		est = ( (pn_hi_hi << HALF_BITS) | pn_hi_lo ) / qn_hi;
-	}
-
-	limb_t prod_hi = 0;
-	limb_t prod_lo = 0;
-	limber_mul_single(&prod_hi, &prod_lo, qn, est);
-
-	while (is_greater_than(prod_hi, prod_lo, pn_hi, pn_lo)) {
-		est--;
-		limber_mul_single(&prod_hi, &prod_lo, qn, est);
-	}
-
-	limb_t rem_hi = pn_hi - prod_hi - (pn_lo < prod_lo);
-	limb_t rem_lo = pn_lo - prod_lo;
-
-	while (rem_hi > 0 || rem_lo >= qn) {
-		est++;
-
-		limb_t old_rem_lo = rem_lo;
-		rem_lo -= qn;
-		if (rem_lo > old_rem_lo) {
-			rem_hi--;
-		}
-	}
-
-	if (r_ptr) {
-		*r_ptr = (rem_hi << (BITS_PER_LIMB - s)) | (rem_lo >> s);
-	}
-
-	if (q_ptr) {
-		*q_ptr = est;
-	}
-}
-*/
 bool limber_is_zero(Limber op)
 {
         return op->size == 1 && op->limbs[0] == 0 && op->sign == 0;
@@ -380,7 +328,6 @@ void limber_div_limb(Limber rop, limb_t *remainder, Limber dividend, limb_t divi
 			limb_t dividend_hi = partial_remainder;
 			limb_t dividend_lo = temp_rop->limbs[i];
 			divmnu(dividend_hi, dividend_lo, divider, NULL, &temp_rop->limbs[i], &partial_remainder);
-			//divrem_2by1(&temp_rop->limbs[i], &partial_remainder, dividend_hi, dividend_lo, divider);
 		}
 
 		if (remainder) {
