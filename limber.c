@@ -134,43 +134,40 @@ static void limber_normalize(Limber l)
 
 void limber_add_limb(Limber rop, Limber op1, limb_t op2)
 {
-	Limber temp_rop;
-	limber_init(temp_rop);
-
-	limber_set(temp_rop, op1);
+	Limber temp;
+	limber_init(temp);
+	limber_set(temp, op1);
 
 	limb_t carry = op2;
-	for (int i = 0; i < temp_rop->size; i++) {
-		limb_t sum = temp_rop->limbs[i] + carry;
-		carry = sum < temp_rop->limbs[i];
-		temp_rop->limbs[i] = sum;
+	for (int i = 0; i < temp->size; i++) {
+		limb_t sum = temp->limbs[i] + carry;
+		carry = sum < temp->limbs[i];
+		temp->limbs[i] = sum;
 	}
 
 	if (carry > 0) {
-		if (limber_is_full(temp_rop)) {
-			limber_realloc(temp_rop, temp_rop->size + 1);
+		if (limber_is_full(temp)) {
+			limber_realloc(temp, temp->size + 1);
 		}	
-		temp_rop->limbs[temp_rop->size++] = carry;
+		temp->limbs[temp->size++] = carry;
 	}
 
-	limber_normalize(temp_rop);
-	limber_swap(temp_rop, rop);
-	limber_clear(temp_rop);
+	limber_normalize(temp);
+	limber_swap(temp, rop);
+	limber_clear(temp);
 }
 
 void limber_sub_limb(Limber rop, Limber op1, limb_t op2)
 {
-	Limber temp_rop;
-	limber_set(temp_rop, op1);
-	if (limber_is_null(temp_rop)) {
-		return;
-	}
+	Limber temp;
+	limber_init(temp);
+	limber_set(temp, op1);
 
 	limb_t borrow = op2;
-	for (int i = 0; i < temp_rop->size; i++) {
-		limb_t sub = temp_rop->limbs[i] - borrow;
-		borrow = sub > temp_rop->limbs[i];
-		temp_rop->limbs[i] = sub;
+	for (int i = 0; i < temp->size; i++) {
+		limb_t sub = temp->limbs[i] - borrow;
+		borrow = sub > temp->limbs[i];
+		temp->limbs[i] = sub;
 	}
 
 	if (borrow > 0) {
@@ -179,9 +176,9 @@ void limber_sub_limb(Limber rop, Limber op1, limb_t op2)
 		// and its value is less than op2
 	}
 
-	limber_normalize(temp_rop);
-	limber_swap(temp_rop, rop);
-	limber_clear(temp_rop);
+	limber_normalize(temp);
+	limber_swap(temp, rop);
+	limber_clear(temp);
 }
 
 static void limber_mul_single(limb_t *mul_hi, limb_t *mul_lo, limb_t op1, limb_t op2)
@@ -207,38 +204,33 @@ static void limber_mul_single(limb_t *mul_hi, limb_t *mul_lo, limb_t op1, limb_t
 
 void limber_mul_limb(Limber rop, Limber op1, limb_t op2)
 {
-	Limber temp_rop;
-	limber_init(temp_rop);
-
-	limber_set(temp_rop, op1);
-	if (limber_is_null(temp_rop)) {
-		return;
-	}
+	Limber temp;
+	limber_init(temp);
+	limber_set(temp, op1);
 
 	limb_t carry = 0;
-	for (int i = 0; i < temp_rop->size; i++) {
-		limb_t current_limb = temp_rop->limbs[i];
+	for (int i = 0; i < temp->size; i++) {
+		limb_t current_limb = temp->limbs[i];
 		limb_t mul_hi = 0;
 		limb_t mul_lo = 0;
 
 		limber_mul_single(&mul_hi, &mul_lo, current_limb, op2);
 
-		temp_rop->limbs[i] = mul_lo + carry;
-		carry = mul_hi + (temp_rop->limbs[i] < mul_lo);
+		temp->limbs[i] = mul_lo + carry;
+		carry = mul_hi + (temp->limbs[i] < mul_lo);
 	}
 
 	if (carry > 0) {
-		if (limber_is_full(temp_rop)) {
-			limber_realloc(temp_rop, temp_rop->size + 1);
-			// TODO(): Handle realloc fail
+		if (limber_is_full(temp)) {
+			limber_realloc(temp, temp->size + 1);
 		}
 		
-		temp_rop->limbs[temp_rop->size++] = carry;
+		temp->limbs[temp->size++] = carry;
 	}
 
-	limber_normalize(temp_rop);
-	limber_swap(temp_rop, rop);
-	limber_clear(temp_rop);
+	limber_normalize(temp);
+	limber_swap(temp, rop);
+	limber_clear(temp);
 }
 
 static int limber_clz(limb_t n)
@@ -309,25 +301,25 @@ bool limber_is_zero(Limber op)
 void limber_div_limb(Limber rop, limb_t *remainder, Limber dividend, limb_t divider)
 {
 	// TODO: divider can't be zero
-	Limber temp_rop;
-	limber_init(temp_rop);
-	limber_set(temp_rop, dividend);
-	if (limber_is_null(temp_rop) || limber_is_zero(temp_rop)) {
+	Limber temp;
+	limber_init(temp);
+	limber_set(temp, dividend);
+	if (limber_is_null(temp) || limber_is_zero(temp)) {
 		if (remainder) {
 			*remainder = 0;
 		}
 
-		limber_clear(temp_rop);
-		limber_realloc(temp_rop, 1);
-		temp_rop->limbs[0] = 0;
-		temp_rop->size = 1;
-		temp_rop->sign = 0;
+		limber_clear(temp);
+		limber_realloc(temp, 1);
+		temp->limbs[0] = 0;
+		temp->size = 1;
+		temp->sign = 0;
 	} else {
 		limb_t partial_remainder = 0;
-		for (int i = temp_rop->size - 1; i >= 0; i--) {
+		for (int i = temp->size - 1; i >= 0; i--) {
 			limb_t dividend_hi = partial_remainder;
-			limb_t dividend_lo = temp_rop->limbs[i];
-			divmnu(dividend_hi, dividend_lo, divider, NULL, &temp_rop->limbs[i], &partial_remainder);
+			limb_t dividend_lo = temp->limbs[i];
+			divmnu(dividend_hi, dividend_lo, divider, NULL, &temp->limbs[i], &partial_remainder);
 		}
 
 		if (remainder) {
@@ -335,9 +327,9 @@ void limber_div_limb(Limber rop, limb_t *remainder, Limber dividend, limb_t divi
 		}
 	}
 
-	limber_normalize(temp_rop);
-	limber_swap(temp_rop, rop);
-	limber_clear(temp_rop);
+	limber_normalize(temp);
+	limber_swap(temp, rop);
+	limber_clear(temp);
 }
 
 void limber_set_from_str(Limber rop, const char *str, int base)
@@ -532,7 +524,7 @@ void limber_add(Limber rop, Limber op1, Limber op2)
 			limber_sub_mag(temp, op2, op1);
 			temp->sign = op2->sign;
 		} else if (r == 0) {
-			//TODO(): Rop is zero
+			// Rop must be zero (temp is already 0, so we've got to do nothing)
 		}
 	}
 
@@ -560,7 +552,7 @@ void limber_sub(Limber rop, Limber op1, Limber op2)
 			limber_sub_mag(temp, op2, op1);
 			temp->sign = -(op1->sign);
 		} else {
-			//TODO(): Rop is zero
+			// Rop must be zero (temp is already 0, so we've got to do nothing)
 		}
 	} else {
 		temp->sign = op1->sign;
@@ -581,18 +573,41 @@ void limber_mul(Limber rop, Limber op1, Limber op2)
 {
 	Limber temp;
 	limber_init(temp);
-	limber_realloc(temp, op1->size + op2->size + 1);
+
+	if (limber_is_zero(op1) || limber_is_zero(op2)) {
+		limber_swap(rop, temp);
+		limber_clear(temp);
+		return;
+	}
+
+	int needed_size = op1->size + op2->size + 1;
+	limber_realloc(temp, needed_size);
 	temp->sign = op1->sign * op2->sign;
+	temp->size = needed_size;
+
+	memset(temp->limbs, 0, sizeof(limb_t) * temp->alloc);
 
 	for (int i = 0; i < op1->size; i++) {
+		limb_t carry = 0;
 		for (int j = 0; j < op2->size; j++) {
 			limb_t mul_hi = 0;
 			limb_t mul_lo = 0;
 
-			limber_mul_single(&mul_hi, &mul_lo, op1->limbs[i], op2->limbs[i]);
-			temp->limbs[i + j + 1] = mul_hi;
-			temp->limbs[i + j] = mul_lo;
+			limber_mul_single(&mul_hi, &mul_lo, op1->limbs[i], op2->limbs[j]);
+
+			limb_t sum_ab = temp->limbs[i + j] + mul_lo;
+			limb_t carry_ab = (sum_ab < mul_lo);
+
+			limb_t sum = sum_ab + carry;
+			limb_t carry_c = sum < carry;
+
+			carry = mul_hi + carry_ab + carry_c;
+
+
+			temp->limbs[i + j] = sum;
 		}
+
+		temp->limbs[i + op2->size] = carry;
 	}
 
 	limber_normalize(temp);
