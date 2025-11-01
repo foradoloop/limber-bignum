@@ -95,30 +95,18 @@ static bool limber_is_full(Limber l)
 	return (l->size == l->alloc);
 }
 
-void limber_set(Limber rop, Limber op)
+static void limber_set(Limber rop, Limber op)
 {
-	if (limber_is_null(rop)) {
-		rop->limbs = malloc(sizeof(limb_t) * op->alloc);
-	} else {
-		if (rop->alloc < op->alloc) {
-			limb_t *temp = realloc(rop->limbs, op->alloc);
-			if (!temp) {
-				// realoc fail
-				limber_clear(rop);
-				*rop = LIMBER_NULL;
-			}
-			rop->limbs = temp;
-		}
+	if (rop->alloc < op->alloc) {
+		limb_t *temp = LIMBER_REALLOC(rop->limbs, sizeof(limb_t) * op->alloc);
+		rop->limbs = temp;
+		rop->alloc = op->alloc;
 	}
 
-	if (rop->limbs) {
-		rop->size = op->size;
-		rop->alloc = op->alloc;
-		rop->sign = op->sign;
-		memcpy(rop->limbs, op->limbs, sizeof(limb_t) * rop->size);
-	} else {
-		*rop = LIMBER_NULL;
-	}
+	rop->size = op->size;
+	rop->alloc = op->alloc;
+	rop->sign = op->sign;
+	memcpy(rop->limbs, op->limbs, sizeof(limb_t) * rop->size);
 }
 
 static void limber_normalize(Limber l)
